@@ -5,17 +5,6 @@ export type SplitPlan = {
   direction: "right" | "down";
 };
 
-export function planSiblingSplit(
-  layout: PaneLayout,
-  sourcePaneId: string,
-  minimum: { width: number; height: number },
-): SplitPlan | undefined {
-  const pane = layout.panes.find((candidate) => candidate.pane_id === sourcePaneId);
-  if (!pane) return undefined;
-  const direction = chooseDirection(pane.rect, minimum);
-  return direction ? { sourcePaneId, direction } : undefined;
-}
-
 export function planLargestSplit(
   layout: PaneLayout,
   paneIds: ReadonlySet<string>,

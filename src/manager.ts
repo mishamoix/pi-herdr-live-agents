@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { ExtensionConfig, ModelProfile, PanePlacement } from "./types.js";
 import { HerdrClient, HerdrCommandError, isHerdrAbort, isHerdrError } from "./herdr.js";
-import { planLargestSplit, planSiblingSplit } from "./layout.js";
+import { planLargestSplit } from "./layout.js";
 import {
   appendEvent,
   createRunDirectory,
@@ -40,6 +40,7 @@ const LEGACY_RETENTION = { deliveredDays: 7, undeliveredDays: 30 } as const;
 /** A freshly split pane reports `agent_pane_busy` until its shell reaches an interactive prompt. */
 const PANE_READY_TIMEOUT_MS = 15_000;
 const PANE_READY_RETRY_MS = 250;
+const MAX_AGENTS_PER_TAB = 4;
 const MODEL_CLOSEABLE_STATUSES = new Set<AgentStatus>(["idle", "done", "failed", "interrupted", "closed"]);
 
 export type HerdrPort = Pick<
@@ -578,20 +579,6 @@ export class AgentManager {
     const parentPane = await this.herdr.getPane(this.parent.paneId, signal);
     const minimum = { width: this.config.layout.minPaneWidth, height: this.config.layout.minPaneHeight };
     const env = childEnvironment(run);
-    const parentLayout = await this.herdr.getLayout(parentPane.pane_id, signal);
-    const siblingPlan = parentLayout.zoomed ? undefined : planSiblingSplit(parentLayout, parentPane.pane_id, minimum);
-    if (siblingPlan) {
-      const request: SplitPaneRequest = {
-        sourcePaneId: siblingPlan.sourcePaneId,
-        direction: siblingPlan.direction,
-        cwd: this.parent.cwd,
-        env,
-      };
-      if (signal) request.signal = signal;
-      const pane = await this.herdr.splitPane(request);
-      return { pane, placement: "sibling" };
-    }
-
     const tabLabel = `agents · ${this.parent.sessionId.slice(-6)}`;
     const ownedTabIds = new Set(
       this.currentRuns()
@@ -603,7 +590,7 @@ export class AgentManager {
     const panes = await this.herdr.listPanes(parentPane.workspace_id, signal);
     for (const tab of agentTabs) {
       const tabPanes = panes.filter((pane) => pane.tab_id === tab.tab_id);
-      if (!tabPanes[0]) continue;
+      if (!tabPanes[0] || tabPanes.length >= MAX_AGENTS_PER_TAB) continue;
       const layout = await this.herdr.getLayout(tabPanes[0].pane_id, signal);
       const plan = planLargestSplit(layout, new Set(tabPanes.map((pane) => pane.pane_id)), minimum);
       if (!plan) continue;

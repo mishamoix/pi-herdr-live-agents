@@ -46,7 +46,7 @@ pi -e npm:pi-herdr-live-agents
 ## How a delegation runs
 
 1. The parent model calls `spawn_agent` with a self-contained task message it wrote itself.
-2. The extension opens a sibling pane, or an `agents · <session>` tab when a split would leave any pane smaller than 72x20.
+2. The extension opens a pane in a dedicated `agents · <session>` tab, keeping the parent's tab untouched.
 3. Herdr starts a normal Pi session there with the chosen provider, model, and thinking level.
 4. A private mailbox hands the task to the child, which delivers it through `pi.sendUserMessage()`.
 5. When the child finishes, its reporter writes the final response to disk and the parent receives it as a structured result.
@@ -122,7 +122,7 @@ Config files, storage paths, and environment variables still use the earlier `su
 
 ## Layout and limits
 
-Splits happen only when both resulting panes stay at least 72x20. Otherwise the extension creates or reuses a dedicated agents tab. Pane creation never steals your focus.
+Agents always open in dedicated tabs, up to four panes per tab. A new agents tab is created when the current one reaches four panes or cannot be split without making a pane smaller than 72x20. The parent's tab stays untouched, and pane creation never steals your focus.
 
 Defaults allow 4 agents starting, working, or blocked at once and 8 open panes. There is no hidden queue: past the limit, `spawn_agent` fails and tells the model to wait or close a pane.
 

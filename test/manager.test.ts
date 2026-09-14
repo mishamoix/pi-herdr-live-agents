@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe("AgentManager", () => {
-  it("creates a readable sibling pane, starts Pi, and accepts the mailbox task", async () => {
+  it("creates a dedicated agent tab, starts Pi, and accepts the mailbox task", async () => {
     const herdr = new FakeHerdr();
     const changes: number[] = [];
     const results: RunResult[] = [];
@@ -59,16 +59,15 @@ describe("AgentManager", () => {
     });
 
     expect(receipt.accepted).toBe(true);
-    expect(receipt.pane_id).toBe("child-pane");
-    expect(herdr.splitCalls).toEqual([
-      expect.objectContaining({ sourcePaneId: "parent-pane", direction: "right", cwd: "/repo" }),
-    ]);
-    expect(herdr.splitCalls[0]?.env).toMatchObject({
+    expect(receipt.pane_id).toBe("owned-pane-1");
+    expect(herdr.splitCalls).toHaveLength(0);
+    expect(herdr.createTabCalls).toHaveLength(1);
+    expect(herdr.createTabCalls[0]?.env).toMatchObject({
       PI_HERDR_SUBAGENT: "1",
       PI_HERDR_SUBAGENT_PARENT_SESSION_ID: "parent-1",
     });
     expect(herdr.startedWith).toMatchObject({
-      paneId: "child-pane",
+      paneId: "owned-pane-1",
       provider: "openai",
       model: "gpt-test",
       thinking: "high",
@@ -161,7 +160,8 @@ describe("AgentManager", () => {
 
     expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
     expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
-    expect(herdr.splitCalls).toHaveLength(1);
+    expect(herdr.splitCalls).toHaveLength(0);
+    expect(herdr.createTabCalls).toHaveLength(1);
     expect(manager.list()).toHaveLength(1);
     manager.stop();
   });
@@ -205,6 +205,31 @@ describe("AgentManager", () => {
       }),
     ).rejects.toThrow("Concurrent agent limit reached");
     await first;
+    manager.stop();
+  });
+
+  it("opens another dedicated tab after four agent panes", async () => {
+    const herdr = new FakeHerdr();
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.limits.maxConcurrentAgents = 8;
+    const manager = createManager(herdr, config);
+    await manager.start();
+
+    const receipts = [];
+    for (let index = 1; index <= 5; index += 1) {
+      receipts.push(
+        await manager.spawn({
+          taskName: `agent-${index}`,
+          message: `Task ${index}`,
+          model: { provider: "openai", model: "gpt-test" },
+        }),
+      );
+    }
+
+    expect(receipts.slice(0, 4).map((receipt) => receipt.tab_id)).toEqual(Array(4).fill("owned-tab-1"));
+    expect(receipts[4]?.tab_id).toBe("owned-tab-2");
+    expect(herdr.createTabCalls).toHaveLength(2);
+    expect(herdr.splitCalls).toHaveLength(3);
     manager.stop();
   });
 
@@ -483,19 +508,20 @@ class FakeHerdr implements HerdrPort {
   }
 
   async getLayout(paneId: string) {
+    const tabId = this.panes.get(paneId)?.tab_id ?? "t1";
     return {
       workspace_id: "w1",
-      tab_id: "t1",
+      tab_id: tabId,
       zoomed: false,
       focused_pane_id: paneId,
       area: { x: 0, y: 0, width: paneId === "parent-pane" ? this.parentWidth : 192, height: 46 },
-      panes: [
-        {
-          pane_id: paneId,
-          focused: true,
-          rect: { x: 0, y: 0, width: paneId === "parent-pane" ? this.parentWidth : 192, height: 46 },
-        },
-      ],
+      panes: [...this.panes.values()]
+        .filter((pane) => pane.tab_id === tabId)
+        .map((pane) => ({
+          pane_id: pane.pane_id,
+          focused: pane.pane_id === paneId,
+          rect: { x: 0, y: 0, width: pane.pane_id === "parent-pane" ? this.parentWidth : 192, height: 46 },
+        })),
       splits: [],
     };
   }
@@ -543,7 +569,7 @@ class FakeHerdr implements HerdrPort {
     const pane: HerdrPane = {
       pane_id: this.splitCalls.length === 1 ? "child-pane" : `child-pane-${this.splitCalls.length}`,
       workspace_id: "w1",
-      tab_id: "t1",
+      tab_id: this.panes.get(input.sourcePaneId)?.tab_id ?? "t1",
       focused: false,
       cwd: input.cwd,
       foreground_cwd: input.cwd,
