@@ -13,7 +13,8 @@ export default function piHerdrLiveAgents(pi: ExtensionAPI): void {
   delete process.env.PI_HERDR_SUBAGENT_RUN_ID;
   if (isChild && childRunDirectory) {
     registerChildRuntime(pi, childRunDirectory, childRunId);
-    return;
   }
+  // A child keeps its mailbox runtime and also gets the root runtime, so nesting
+  // is uncapped: every agent can spawn its own agents at any depth.
   registerRootRuntime(pi);
 }
